@@ -1,72 +1,114 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, normalizePath, TFile } from 'obsidian';
+import { FINISH_MORNING_ENTRY_COMMAND, INSERT_GOAL_COMMAND } from 'src/commands';
+import { MORNING_TEMPLATE, EVENING_TEMPLATE, HOW_TO_TEMPLATE, GOAL_TEMPLATE, GOALS_INSTRUCTION_TEMPLATE } from 'src/templates';
 
-// Remember to rename these classes and interfaces!
-
-interface MyPluginSettings {
+interface CompoundSettings {
 	mySetting: string;
 }
 
-const DEFAULT_SETTINGS: MyPluginSettings = {
+const DEFAULT_SETTINGS: CompoundSettings = {
 	mySetting: 'default'
 }
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+const DEFAULT_JOURNAL_PATH = "compound"
+const DEFAULT_JOURNAL_GET_STARTED_PATH = normalizePath(`${DEFAULT_JOURNAL_PATH}/how to.md`)
+const DEFAULT_JOURNAL_GOALS_PATH = normalizePath(`${DEFAULT_JOURNAL_PATH}/goals.md`)
+
+export default class Compound extends Plugin {
+	settings: CompoundSettings;
+
+	async initializeCompound() {
+		const hasInitializedVault = await this.app.vault.getAbstractFileByPath(DEFAULT_JOURNAL_PATH);
+		if (!hasInitializedVault) {
+			await this.app.vault.createFolder(DEFAULT_JOURNAL_PATH);
+			const file = await this.app.vault.create(DEFAULT_JOURNAL_GET_STARTED_PATH, HOW_TO_TEMPLATE);
+			const goal_file = await this.app.vault.create(DEFAULT_JOURNAL_GOALS_PATH, GOALS_INSTRUCTION_TEMPLATE);
+			this.app.workspace.trigger('file-explorer-refresh');
+
+		}
+	}
+
+	revealFileInExplorer(file: TFile) {
+		this.app.workspace.trigger('file-explorer-refresh');
+
+		const fileExplorers = this.app.workspace.getLeavesOfType('file-explorer');
+		if (fileExplorers.length > 0) {
+			const fileExplorer = fileExplorers[0].view as any;
+			if (fileExplorer.revealInFolder) {
+				fileExplorer.revealInFolder(file);
+			}
+		}
+	}
 
 	async onload() {
 		await this.loadSettings();
 
-		// This creates an icon in the left ribbon.
-		const ribbonIconEl = this.addRibbonIcon('dice', 'Sample Plugin', (_evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
+		this.app.workspace.onLayoutReady(async () => {
+			await this.initializeCompound();
 		});
-		// Perform additional things with the ribbon
-		ribbonIconEl.addClass('my-plugin-ribbon-class');
 
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status Bar Text');
+		this.addRibbonIcon("anvil", "Morning Planning", async (_evt: MouseEvent) => {
+			const now = window.moment();
+			const todaysDate = now.format('YYYY.MM.DD');
+			const todaysPath = normalizePath(`${DEFAULT_JOURNAL_PATH}/${todaysDate}`)
+			const todaysMorningEntryPath = normalizePath(`${todaysPath}/morning.md`)
 
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-sample-modal-simple',
-			name: 'Open sample modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'sample-editor-command',
-			name: 'Sample editor command',
-			editorCallback: (editor: Editor, _view: MarkdownView) => {
-				console.log(editor.getSelection());
-				editor.replaceSelection('Sample Editor Command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-sample-modal-complex',
-			name: 'Open sample modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
+			let file = this.app.vault.getAbstractFileByPath(todaysMorningEntryPath);
+			const todaysFolder = this.app.vault.getAbstractFileByPath(todaysPath)
 
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
+			if (file) {
+				if (file instanceof TFile) {
+					await this.app.workspace.getLeaf().openFile(file);
+					this.revealFileInExplorer(file);
 				}
 			}
-		});
+			else {
+				if (!todaysFolder) {
+					const folder = await this.app.vault.createFolder(todaysPath);
+				} const file = await this.app.vault.create(todaysMorningEntryPath, MORNING_TEMPLATE);
+
+				if (file instanceof TFile) {
+					await this.app.workspace.getLeaf().openFile(file);
+					this.revealFileInExplorer(file);
+				}
+			}
+
+
+		})
+
+		this.addRibbonIcon("moon-star", "Evening Reflection", async (_evt: MouseEvent) => {
+			const now = window.moment();
+			const todaysDate = now.format('YYYY.MM.DD');
+			const todaysPath = normalizePath(`${DEFAULT_JOURNAL_PATH}/${todaysDate}`)
+			const todaysEveningEntryPath = normalizePath(`${todaysPath}/evening.md`)
+
+			const todaysFolder = this.app.vault.getAbstractFileByPath(todaysPath)
+			let file = this.app.vault.getAbstractFileByPath(todaysEveningEntryPath);
+
+			if (file) {
+				if (file instanceof TFile) {
+					await this.app.workspace.getLeaf().openFile(file);
+					this.revealFileInExplorer(file);
+				}
+			}
+			else {
+				if (!todaysFolder) {
+					const folder = await this.app.vault.createFolder(todaysPath);
+				}
+				const file = await this.app.vault.create(todaysEveningEntryPath, EVENING_TEMPLATE);
+
+				if (file instanceof TFile) {
+					await this.app.workspace.getLeaf().openFile(file);
+					this.revealFileInExplorer(file);
+				}
+			}
+		})
+
+		this.addCommand(FINISH_MORNING_ENTRY_COMMAND);
+		this.addCommand(INSERT_GOAL_COMMAND);
 
 		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
+		this.addSettingTab(new CompoundSettingTab(this.app, this));
 
 		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
 		// Using this function will automatically remove the event listener when this plugin is disabled.
@@ -91,32 +133,16 @@ export default class MyPlugin extends Plugin {
 	}
 }
 
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
+class CompoundSettingTab extends PluginSettingTab {
+	plugin: Compound;
 
-	onOpen() {
-		const {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
-
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
-	}
-}
-
-class SampleSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
-
-	constructor(app: App, plugin: MyPlugin) {
+	constructor(app: App, plugin: Compound) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}
 
 	display(): void {
-		const {containerEl} = this;
+		const { containerEl } = this;
 
 		containerEl.empty();
 
