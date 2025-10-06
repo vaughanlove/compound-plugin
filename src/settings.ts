@@ -16,13 +16,13 @@ export class CompoundSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		new Setting(containerEl)
-			.setName('Journal Path')
-			.setDesc('Path to your journal folder')
+			.setName('Anthropic API Key')
+			.setDesc("Your Anthropic Api Key (Look at the how to file for instructions)")
 			.addText(text => text
-				.setPlaceholder('Journal')
-				.setValue(this.plugin.settings.mySetting)
+				.setPlaceholder('sk-*******')
+				.setValue(this.plugin.settings.ANTHROPIC_API_KEY)
 				.onChange(async (value) => {
-					this.plugin.settings.mySetting = value;
+					this.plugin.settings.ANTHROPIC_API_KEY = value;
 					await this.plugin.saveSettings();
 				}));
 	}

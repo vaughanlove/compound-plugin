@@ -12,4 +12,4 @@ export const GOALS_INSTRUCTION_TEMPLATE = `This is where you can define your goa
 #### instructions
 Hold Ctrl-P and use the command "Insert new goal" to begin. This populates a empty template you can modify. 
 `
-export const GOAL_TEMPLATE = `<goal>Name: <br> \n Description: <br> \n</goal>` 
+export const GOAL_TEMPLATE = `<goal>Name: <br> \nDescription: <br> \n</goal>` 

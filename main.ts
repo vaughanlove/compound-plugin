@@ -1,5 +1,5 @@
 import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, normalizePath, TFile } from 'obsidian';
-import { create_evening_reflection_callback, create_morning_reflection_callback, FINISH_MORNING_ENTRY_COMMAND, initializeCompound, INSERT_GOAL_COMMAND } from 'src/commands';
+import { create_evening_reflection_callback, create_morning_reflection_callback, finishMorningEntryCommand, initializeCompound, INSERT_GOAL_COMMAND } from 'src/commands';
 import { DEFAULT_JOURNAL_GET_STARTED_PATH, DEFAULT_JOURNAL_GOALS_PATH, DEFAULT_JOURNAL_PATH, DEFAULT_SETTINGS } from 'src/constants';
 import { CompoundSettings } from 'src/interfaces';
 import { CompoundSettingTab } from 'src/settings';
@@ -19,7 +19,7 @@ export default class Compound extends Plugin {
 		this.addRibbonIcon("anvil", "Morning Planning", create_morning_reflection_callback(this.app))
 		this.addRibbonIcon("moon-star", "Evening Reflection", create_evening_reflection_callback(this.app))
 
-		this.addCommand(FINISH_MORNING_ENTRY_COMMAND);
+		this.addCommand(finishMorningEntryCommand(this));
 		this.addCommand(INSERT_GOAL_COMMAND);
 
 		// This adds a settings tab so the user can configure various aspects of the plugin

@@ -1,4 +1,5 @@
-import { App, TFile } from "obsidian";
+import type Compound from "main";
+import { App, normalizePath, TFile } from "obsidian";
 
 export function extract_goals_from_text(text: string) {
     // regex out goals in goals.ts
@@ -23,3 +24,18 @@ export function revealFileInExplorer(app: App, file: TFile) {
             }
         }
     }
+
+export async function getAndExtractGoals(plugin: Compound) {
+    const goalPattern = /<goal>([\s\S]*?)<\/goal>/g;
+    const goalsMarkdownContent = await plugin.app.vault.read(plugin.app.vault.getFileByPath(normalizePath(`compound/goals.md`))!);
+    const goals: string[] = [];
+    let match;
+
+    while ((match = goalPattern.exec(goalsMarkdownContent)) !== null) {
+        goals.push(`<goal>${match[1]}</goal>`);
+    }
+
+    console.log(goals)
+
+    return goals.join('');
+}

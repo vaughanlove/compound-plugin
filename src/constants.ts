@@ -2,7 +2,7 @@ import { normalizePath } from "obsidian"
 import { CompoundSettings } from "./interfaces"
 
 export const DEFAULT_SETTINGS: CompoundSettings = {
-    mySetting: 'default'
+    ANTHROPIC_API_KEY: ''
 }
 
 export const DEFAULT_JOURNAL_PATH = "compound"
