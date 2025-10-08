@@ -1,7 +1,7 @@
 import { App, Editor, MarkdownView, normalizePath, Notice, Plugin, Setting, TFile } from "obsidian";
 import { EVENING_TEMPLATE, GOAL_TEMPLATE, GOALS_INSTRUCTION_TEMPLATE, HOW_TO_TEMPLATE, MORNING_TEMPLATE } from "./templates";
 import { DEFAULT_JOURNAL_GET_STARTED_PATH, DEFAULT_JOURNAL_GOALS_PATH, DEFAULT_JOURNAL_PATH } from "./constants";
-import { getAndExtractGoals, revealFileInExplorer } from "./utils";
+import { getAndExtractGoals, goalsToString, revealFileInExplorer, saveGoalsAsJson } from "./utils";
 import { createExtractActionsPrompt } from "./prompts";
 import { createClient } from "./llm";
 import type Compound from "main";
@@ -55,9 +55,10 @@ export const finishMorningEntryCommand = (plugin: Compound) => {
 
             try {
                 const entryText = _view.data.slice(93);
+                const goalsObject = await getAndExtractGoals(plugin);
                 const stream = await client.messages.create({
                     max_tokens: 1024,
-                    messages: [{ role: 'user', content: createExtractActionsPrompt(entryText, await getAndExtractGoals(plugin)) }],
+                    messages: [{ role: 'user', content: createExtractActionsPrompt(entryText, goalsToString(goalsObject)) }],
                     model: 'claude-sonnet-4-5-20250929',
                     stream: true,
                 });
@@ -70,8 +71,6 @@ export const finishMorningEntryCommand = (plugin: Compound) => {
                         fullResponse += chunk.delta.text;
                     }
                 }
-
-                console.log(fullResponse)
 
                 // Replace the "analyzing..." line with success
                 const currentContent = editor.getValue();
@@ -86,6 +85,9 @@ export const finishMorningEntryCommand = (plugin: Compound) => {
 
                 const updatedContent = currentContent.replace(analyzingPattern, successLine);
                 editor.setValue(updatedContent);
+
+                // need to update the internal file (hidden from obsidian) in the folder.
+                saveGoalsAsJson(plugin.app.vault, goalsObject, normalizePath(`${_view.file?.parent?.path}/daily_goals.json`))
 
                 // Move cursor to end
                 editor.setCursor(editor.lastLine(), editor.getLine(editor.lastLine()).length);
