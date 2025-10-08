@@ -1,10 +1,10 @@
 import { App, Editor, MarkdownView, normalizePath, Notice, Plugin, Setting, TFile } from "obsidian";
 import { EVENING_TEMPLATE, GOAL_TEMPLATE, GOALS_INSTRUCTION_TEMPLATE, HOW_TO_TEMPLATE, MORNING_TEMPLATE } from "./templates";
 import { DEFAULT_JOURNAL_GET_STARTED_PATH, DEFAULT_JOURNAL_GOALS_PATH, DEFAULT_JOURNAL_PATH } from "./constants";
-import { getAndExtractGoals, goalsToString, revealFileInExplorer, saveGoalsAsJson } from "./utils";
+import { extractJsonFromMarkdown, getAndExtractGoals, goalsToString, parseActionsFromJson, revealFileInExplorer, saveActionsAsJson, saveGoalsAsJson } from "./utils";
 import { createExtractActionsPrompt } from "./prompts";
 import { createClient } from "./llm";
-import type Compound from "main";
+import type Compound from "./main";
 
 export const INSERT_GOAL_COMMAND = {
     id: 'Insert new goal',
@@ -72,6 +72,10 @@ export const finishMorningEntryCommand = (plugin: Compound) => {
                     }
                 }
 
+                const actionJsonString = extractJsonFromMarkdown(fullResponse);
+                const structuredActions = parseActionsFromJson(actionJsonString);
+
+
                 // Replace the "analyzing..." line with success
                 const currentContent = editor.getValue();
                 const analyzingPattern = hasAnalysis
@@ -87,7 +91,7 @@ export const finishMorningEntryCommand = (plugin: Compound) => {
                 editor.setValue(updatedContent);
 
                 // need to update the internal file (hidden from obsidian) in the folder.
-                saveGoalsAsJson(plugin.app.vault, goalsObject, normalizePath(`${_view.file?.parent?.path}/daily_goals.json`))
+                saveActionsAsJson(plugin.app.vault, structuredActions, normalizePath(`${_view.file?.parent?.path}/daily_actions.json`));
 
                 // Move cursor to end
                 editor.setCursor(editor.lastLine(), editor.getLine(editor.lastLine()).length);

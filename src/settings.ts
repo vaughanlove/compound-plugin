@@ -1,5 +1,5 @@
 import { App, PluginSettingTab, Setting } from 'obsidian';
-import type Compound from '../main'; // type-only import, avoids circular import
+import type Compound from './main'; // type-only import, avoids circular import
 import { CompoundSettings } from './interfaces';
 
 export class CompoundSettingTab extends PluginSettingTab {

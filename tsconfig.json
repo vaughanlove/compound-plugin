@@ -1,10 +1,13 @@
 {
   "compilerOptions": {
+       "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
     "baseUrl": ".",
     "inlineSourceMap": true,
     "inlineSources": true,
     "module": "ESNext",
     "target": "ES6",
+    "jsx": "react-jsx",
     "allowJs": true,
     "noImplicitAny": true,
     "moduleResolution": "node",

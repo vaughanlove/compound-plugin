@@ -5,35 +5,45 @@ import { CompoundSettings } from 'src/interfaces';
 import { CompoundSettingTab } from 'src/settings';
 import { MORNING_TEMPLATE, EVENING_TEMPLATE, HOW_TO_TEMPLATE, GOAL_TEMPLATE, GOALS_INSTRUCTION_TEMPLATE } from 'src/templates';
 // import * as d3 from 'd3';
-
+import { MORNING_GRAPH_VIEW, MorningGraphView } from './renderer/MorningActionGraphView';
 // maybe use bases view for a calendar overview of actions?
 
 // Define your data type
 interface MorningActionData {
-  date: Date;
-  value: number;
+	date: Date;
+	value: number;
 }
 
 
 export default class Compound extends Plugin {
 	settings: CompoundSettings;
 
-	getGraphData() {
-    // Replace this with your actual data source
-    // This could come from your plugin's settings, data files, etc.
-    return [
-      { date: new Date('2025-10-01'), value: 5 },
-      { date: new Date('2025-10-02'), value: 8 },
-      { date: new Date('2025-10-03'), value: 6 },
-      { date: new Date('2025-10-04'), value: 10 },
-      { date: new Date('2025-10-05'), value: 7 },
-      { date: new Date('2025-10-06'), value: 9 },
-    ];
-  }
-	
-
 	async onload() {
 		await this.loadSettings();
+
+		this.registerView(
+			MORNING_GRAPH_VIEW,
+			(leaf) => new MorningGraphView(leaf)
+		);
+
+		this.app.workspace.on('file-open', async (file) => {
+			if (file) {
+				if (file.name === 'morning.md' && file.path.includes('compound/')) {
+					// Get the active leaf
+					let leaf = this.app.workspace.getLeavesOfType(MORNING_GRAPH_VIEW)[0];
+
+					if (!leaf) {
+						leaf = this.app.workspace.getRightLeaf(false)!;
+						await leaf.setViewState({
+							type: MORNING_GRAPH_VIEW,
+							active: true,
+						});
+					}
+
+					this.app.workspace.revealLeaf(leaf);
+				}
+			}
+		})
 
 		this.app.workspace.onLayoutReady(async () => {
 			await initializeCompound(this.app);
@@ -69,4 +79,21 @@ export default class Compound extends Plugin {
 	async saveSettings() {
 		await this.saveData(this.settings);
 	}
+	async activateView() {
+		const { workspace } = this.app;
+
+		let leaf = workspace.getLeavesOfType(MORNING_GRAPH_VIEW)[0];
+
+		if (!leaf) {
+			leaf = workspace.getRightLeaf(false)!;
+			await leaf.setViewState({
+				type: MORNING_GRAPH_VIEW,
+				active: true,
+			});
+		}
+
+		workspace.revealLeaf(leaf);
+	}
 }
+
+

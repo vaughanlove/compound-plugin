@@ -1,7 +1,12 @@
 export type Action = {
     action: string
-    relation: string
-    reasoning: string
+    goal_relations: GoalRelation[]
+}
+
+export type GoalRelation = {
+    goal_name: string
+    relation_type?: string
+    reasoning?: string
 }
 
 export type Goal = {

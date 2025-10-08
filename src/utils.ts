@@ -1,6 +1,6 @@
-import type Compound from "main";
+import type Compound from "./main";
 import { App, normalizePath, TFile, Vault } from "obsidian";
-import { Goal } from "./types";
+import { Action, Goal } from "./types";
 
 export function extract_goals_from_text(text: string) {
     // regex out goals in goals.ts
@@ -78,4 +78,46 @@ export const loadGoalsFromJson = async (
 
     const content = await vault.read(file as any);
     return JSON.parse(content) as Goal[];
+};
+
+export const parseActionsFromJson = (jsonString: string): Action[] => {
+    return JSON.parse(jsonString) as Action[];
+};
+
+export const saveActionsAsJson = async (
+    vault: Vault,
+    actions: Action[],
+    filepath: string
+): Promise<void> => {
+    const content = JSON.stringify(actions, null, 2);
+    const file = vault.getAbstractFileByPath(filepath);
+    
+    if (file instanceof TFile) {
+        await vault.modify(file, content);
+    } else {
+        await vault.create(filepath, content);
+    }
+};
+
+export const extractJsonFromMarkdown = (text: string): string => {
+    const jsonBlockMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
+    if (jsonBlockMatch) {
+        return jsonBlockMatch[1].trim();
+    }
+    // If no code block, return as-is (might be plain JSON)
+    return text.trim();
+};
+
+export const loadActionsFromJson = async (
+    vault: Vault,
+    filepath: string
+): Promise<Action[]> => {
+    const file = vault.getAbstractFileByPath(filepath);
+    
+    if (file instanceof TFile) {
+        const content = await vault.read(file);
+        return parseActionsFromJson(content);
+    } else {
+        throw new Error(`File not found: ${filepath}`);
+    }
 };

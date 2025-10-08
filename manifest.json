@@ -4,8 +4,8 @@
 	"version": "1.0.0",
 	"minAppVersion": "1.0.0",
 	"description": "Compound is a plugin for obsidian for enhanced daily journaling",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
+	"author": "Vaughan Love",
+	"authorUrl": "https://github.com/vaughanlove",
+	"fundingUrl": "https://vaughan.love",
 	"isDesktopOnly": true
 }
