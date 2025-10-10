@@ -1,11 +1,11 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, normalizePath, TFile, BasesView, QueryController } from 'obsidian';
-import { create_evening_reflection_callback, create_morning_reflection_callback, finishMorningEntryCommand, initializeCompound, INSERT_GOAL_COMMAND } from 'src/commands';
-import { DEFAULT_JOURNAL_GET_STARTED_PATH, DEFAULT_JOURNAL_GOALS_PATH, DEFAULT_JOURNAL_PATH, DEFAULT_SETTINGS } from 'src/constants';
+import { Plugin } from 'obsidian';
+import { create_evening_reflection_callback, create_morning_reflection_callback, finishMorningEntryCommand, hardRefreshEveningNote, initializeCompound, INSERT_GOAL_COMMAND, reflectOnEvening } from 'src/commands';
+import { DEFAULT_SETTINGS } from 'src/constants';
 import { CompoundSettings } from 'src/interfaces';
 import { CompoundSettingTab } from 'src/settings';
-import { MORNING_TEMPLATE, EVENING_TEMPLATE, HOW_TO_TEMPLATE, GOAL_TEMPLATE, GOALS_INSTRUCTION_TEMPLATE } from 'src/templates';
 // import * as d3 from 'd3';
 import { MORNING_GRAPH_VIEW, MorningGraphView } from './renderer/MorningActionGraphView';
+import { handleOpenMorningFile } from './event_handlers';
 // maybe use bases view for a calendar overview of actions?
 
 // Define your data type
@@ -17,6 +17,8 @@ interface MorningActionData {
 
 export default class Compound extends Plugin {
 	settings: CompoundSettings;
+	private currentMorningFolder: string | null = null;
+
 
 	async onload() {
 		await this.loadSettings();
@@ -26,24 +28,7 @@ export default class Compound extends Plugin {
 			(leaf) => new MorningGraphView(leaf)
 		);
 
-		this.app.workspace.on('file-open', async (file) => {
-			if (file) {
-				if (file.name === 'morning.md' && file.path.includes('compound/')) {
-					// Get the active leaf
-					let leaf = this.app.workspace.getLeavesOfType(MORNING_GRAPH_VIEW)[0];
-
-					if (!leaf) {
-						leaf = this.app.workspace.getRightLeaf(false)!;
-						await leaf.setViewState({
-							type: MORNING_GRAPH_VIEW,
-							active: true,
-						});
-					}
-
-					this.app.workspace.revealLeaf(leaf);
-				}
-			}
-		})
+		this.app.workspace.on('file-open', handleOpenMorningFile(this.app.workspace));
 
 		this.app.workspace.onLayoutReady(async () => {
 			await initializeCompound(this.app);
@@ -54,6 +39,11 @@ export default class Compound extends Plugin {
 
 		this.addCommand(finishMorningEntryCommand(this));
 		this.addCommand(INSERT_GOAL_COMMAND);
+		this.addCommand(reflectOnEvening(this));
+
+		// not the best flow - should probably re-insert whenever analyze is run
+		// with that said, maybe consolidate "create morning/create evening" buttons into one "create daily note" button - this is much cleaner.
+		this.addCommand(hardRefreshEveningNote(this))
 
 		// This adds a settings tab so the user can configure various aspects of the plugin
 		this.addSettingTab(new CompoundSettingTab(this.app, this));

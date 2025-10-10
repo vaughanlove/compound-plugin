@@ -15,48 +15,11 @@ interface Link {
   reasoning?: string;
 }
 
-export const ActionGoalGraph = () => {
+export const ActionGoalGraph = ({data}: {data: Action[]}) => {
   const svgRef = useRef<SVGSVGElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const data: Action[] = [
-      {
-        "action": "Had a calm morning to manage overwhelming feelings",
-        "goal_relations": []
-      },
-      {
-        "action": "Think deeply about LLM evaluation and LLM-as-a-judge approach",
-        "goal_relations": []
-      },
-      {
-        "action": "Collect all data points for LLM evaluation even if not used",
-        "goal_relations": []
-      },
-      {
-        "action": "Play Hearthstone for relaxation",
-        "goal_relations": []
-      },
-      {
-        "action": "Got approved for vacation",
-        "goal_relations": [
-          {
-            "goal_name": "Move to London",
-            "relation_type": "positively impacts",
-            "reasoning": "Vacation approval likely enables time for London move planning and execution"
-          }
-        ]
-      },
-      {
-        "action": "Plan to ask about London approval",
-        "goal_relations": [
-          {
-            "goal_name": "Move to London",
-            "relation_type": "positively impacts",
-            "reasoning": "Seeking approval for London is a necessary step to execute the move"
-          }
-        ]
-      }
-    ];
 
     // Process data into nodes and links
     const nodes: Node[] = [];
@@ -96,8 +59,9 @@ export const ActionGoalGraph = () => {
     });
 
     // Set up SVG
-    const width = 900;
-    const height = 600;
+    const container = containerRef.current;
+    const width = container?.clientWidth!;
+    const height = container?.clientHeight! - 80; // Account for legend and instructions
     const svg = d3.select(svgRef.current!);
     svg.selectAll("*").remove();
 
@@ -279,7 +243,8 @@ export const ActionGoalGraph = () => {
   }, []);
 
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center bg-gray-50 p-4">
+    <div       ref={containerRef}
+ className="w-full h-screen flex flex-col items-center justify-center bg-gray-50 p-4">
       <div className="mb-4 flex gap-6 text-sm">
         <div className="flex items-center gap-2">
           <div className="w-4 h-4 rounded-full bg-purple-500"></div>
@@ -294,7 +259,7 @@ export const ActionGoalGraph = () => {
           <span>Positively Impacts</span>
         </div>
       </div>
-      <svg ref={svgRef} width="900" height="600" className="border border-gray-300 bg-white rounded-lg shadow-sm"></svg>
+      <svg ref={svgRef} height={1000} width={800} className="flex-1 w-full border border-gray-300 bg-white rounded-lg shadow-sm"></svg>
       <p className="mt-4 text-sm text-gray-600">Drag nodes to reposition • Hover for details • Scroll to zoom</p>
     </div>
   );

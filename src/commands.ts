@@ -1,7 +1,7 @@
 import { App, Editor, MarkdownView, normalizePath, Notice, Plugin, Setting, TFile } from "obsidian";
-import { EVENING_TEMPLATE, GOAL_TEMPLATE, GOALS_INSTRUCTION_TEMPLATE, HOW_TO_TEMPLATE, MORNING_TEMPLATE } from "./templates";
+import { create_evening_text, GOAL_TEMPLATE, GOALS_INSTRUCTION_TEMPLATE, HOW_TO_TEMPLATE, MORNING_TEMPLATE } from "./templates";
 import { DEFAULT_JOURNAL_GET_STARTED_PATH, DEFAULT_JOURNAL_GOALS_PATH, DEFAULT_JOURNAL_PATH } from "./constants";
-import { extractJsonFromMarkdown, getAndExtractGoals, goalsToString, parseActionsFromJson, revealFileInExplorer, saveActionsAsJson, saveGoalsAsJson } from "./utils";
+import { extractJsonFromMarkdown, getAndExtractGoals, goalsToString, loadJsonActionsAsMarkdown, parseActionsFromJson, revealFileInExplorer, saveActionsAsJson, saveGoalsAsJson } from "./utils";
 import { createExtractActionsPrompt } from "./prompts";
 import { createClient } from "./llm";
 import type Compound from "./main";
@@ -11,6 +11,40 @@ export const INSERT_GOAL_COMMAND = {
     name: 'Insert New Goal',
     editorCallback: (editor: Editor, _view: MarkdownView) => {
         editor.replaceSelection(GOAL_TEMPLATE);
+    }
+}
+
+export const reflectOnEvening = (plugin: Compound) => {
+    return {
+        id: 'compound-reflect',
+        name: 'Reflect',
+        editorCallback: async (editor: Editor, _view: MarkdownView) => {
+
+        }
+    }
+}
+
+export const hardRefreshEveningNote = (plugin: Compound) => {
+    return {
+        id: 'compound-hard-refresh-evening',
+        name: 'Hard refresh evening note',
+        editorCallback: async (editor: Editor, _view: MarkdownView) => {
+            const file = plugin.app.workspace.getActiveFile();
+
+
+            let actionsMarkdown = ''
+            try {
+                console.log(normalizePath(`${file?.parent?.parent?.path}/daily_actions.json`));
+                actionsMarkdown = await loadJsonActionsAsMarkdown(plugin.app.vault, normalizePath(`${file?.parent?.path}/daily_actions.json`))
+
+            } catch {
+                actionsMarkdown = '\n\nNo actions found. Have you analyzed your morning entry?';
+            }
+            if (file instanceof TFile) {
+                // Replace the entire content
+                await plugin.app.vault.modify(file, create_evening_text(actionsMarkdown) + "\n\n### Evening Reflection");
+            }
+        }
     }
 }
 
@@ -97,7 +131,6 @@ export const finishMorningEntryCommand = (plugin: Compound) => {
                 editor.setCursor(editor.lastLine(), editor.getLine(editor.lastLine()).length);
 
             } catch (error) {
-                // Replace the "analyzing..." line with error
                 const currentContent = editor.getValue();
                 const analyzingPattern = hasAnalysis
                     ? /🔄 Re-analyzing at .*?\.\.\./g
@@ -140,7 +173,16 @@ export function create_evening_reflection_callback(app: App) {
             if (!todaysFolder) {
                 const folder = await app.vault.createFolder(todaysPath);
             }
-            const file = await app.vault.create(todaysEveningEntryPath, EVENING_TEMPLATE);
+
+            let actionsMarkdown = ''
+            try {
+                actionsMarkdown = await loadJsonActionsAsMarkdown(this.app.vault, normalizePath(`${todaysPath}/daily_actions.json`))
+
+            } catch {
+                actionsMarkdown = 'No actions found. Have you analyzed your morning entry?';
+            }
+
+            const file = await app.vault.create(todaysEveningEntryPath, create_evening_text(actionsMarkdown));
 
             if (file instanceof TFile) {
                 await app.workspace.getLeaf().openFile(file);

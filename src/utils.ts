@@ -121,3 +121,31 @@ export const loadActionsFromJson = async (
         throw new Error(`File not found: ${filepath}`);
     }
 };
+
+export const loadJsonActionsAsMarkdown = async (
+    vault: Vault,
+    filepath: string
+): Promise<string> => {
+    const file = vault.getAbstractFileByPath(filepath);
+    
+    if (file instanceof TFile) {
+        const content = await vault.read(file);
+        return convertActionArrayToMarkdown(parseActionsFromJson(content));
+    } else {
+        throw new Error(`File not found: ${filepath}`);
+    }
+}
+
+function convertActionArrayToMarkdown(actions: Action[]): string {
+    if (actions.length === 0) {
+        return "\n\nNo actions available. Perhaps you need to analyze your morning reflection?";
+    }
+
+    let markdown = "\n\n";
+
+    actions.forEach((action, index) => {
+        markdown += `${index + 1}. ${action.action}\n`;
+    });
+
+    return markdown;
+}

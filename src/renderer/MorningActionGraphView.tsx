@@ -5,6 +5,7 @@ import { Root, createRoot } from 'react-dom/client';
 import {ActionGoalGraph} from './Graph';
 import { loadActionsFromJson } from 'src/utils';
 import { normalizePath } from 'obsidian';
+import { Action } from 'src/types';
 
 export const MORNING_GRAPH_VIEW = 'morning-graph-view';
 
@@ -28,16 +29,19 @@ export class MorningGraphView extends ItemView {
 
 		// load the actual saved data, if it doesn't exist the component just renders a call to action.
 		// const actions = await loadActionsFromJson();
-		console.log("hello?")
 		const file = this.app.workspace.getActiveFile();
   		const parentPath = file?.parent?.path;
-		console.log(normalizePath(`${parentPath}/daily_actions.json`))
-		const actions = await loadActionsFromJson(this.app.vault, normalizePath(`${parentPath}/daily_actions.json`))
 
-		console.log(actions)
+		let actions: Action[] = [];
+		try{
+			actions = await loadActionsFromJson(this.app.vault, normalizePath(`${parentPath}/daily_actions.json`))
+		} catch {
+			console.error("No actions found.")
+		}
+
 		this.root.render(
 			<StrictMode>
-				<ActionGoalGraph />,
+				<ActionGoalGraph data={actions}/>,
 			</StrictMode>,
 		);
 	}

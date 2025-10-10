@@ -1,4 +1,4 @@
-export const EVENING_TEMPLATE = `Good evening. Write and reflect on your day. Here is a summary of the actions I deduced from your morning:`
+export const create_evening_text = (actions_markdown: string) => `Good evening. Write and reflect on your day. Here is a summary of the actions I deduced from your morning: ${actions_markdown}`
 export const MORNING_TEMPLATE = `Good morning. Write below about your plan for the day. Remember your goals.`
 export const HOW_TO_TEMPLATE = `Hello!
 
