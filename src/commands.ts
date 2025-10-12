@@ -1,8 +1,8 @@
 import { App, Editor, MarkdownView, normalizePath, Notice, Plugin, Setting, TFile } from "obsidian";
 import { create_evening_text, GOAL_TEMPLATE, GOALS_INSTRUCTION_TEMPLATE, HOW_TO_TEMPLATE, MORNING_TEMPLATE } from "./templates";
 import { DEFAULT_JOURNAL_GET_STARTED_PATH, DEFAULT_JOURNAL_GOALS_PATH, DEFAULT_JOURNAL_PATH } from "./constants";
-import { extractJsonFromMarkdown, getAndExtractGoals, goalsToString, loadJsonActionsAsMarkdown, parseActionsFromJson, revealFileInExplorer, saveActionsAsJson, saveGoalsAsJson } from "./utils";
-import { createExtractActionsPrompt } from "./prompts";
+import { extractJsonFromMarkdown, getAndExtractGoals, goalsToString, loadIntentsFromJson, loadIntentsJsonAsMarkdown, parseActionsAndRelateToIntentsFromMarkdown, parseIntentsFromJson, revealFileInExplorer, saveActionsAsJson, saveGoalsAsJson, saveIntentsAsJson } from "./utils";
+import { createDailySummaryPrompt, createExtractIntentsPrompt, createReflectOnIntentsPrompt } from "./prompts";
 import { createClient } from "./llm";
 import type Compound from "./main";
 
@@ -19,10 +19,136 @@ export const reflectOnEvening = (plugin: Compound) => {
         id: 'compound-reflect',
         name: 'Reflect',
         editorCallback: async (editor: Editor, _view: MarkdownView) => {
+            const client = createClient(plugin.settings.ANTHROPIC_API_KEY);
 
+            // Check if there's already an relfec section
+            const content = editor.getValue();
+            const analysisRegex = /\n## Analysis History\n([\s\S]*?)(?=\n##|\n---|\z)/;
+            const hasAnalysis = analysisRegex.test(content);
+
+            let analysisStartPos;
+
+            if (hasAnalysis) {
+                // Find where the Analysis History section is
+                const match = content.match(analysisRegex);
+                const matchIndex = content.indexOf(match![0]); // nullish coalesing not great
+
+                analysisStartPos = {
+                    line: editor.lastLine(),
+                    ch: editor.getLine(editor.lastLine()).length
+                };
+
+                // Add re-analysis indicator
+                const timestamp = new Date().toLocaleString();
+                editor.replaceRange(`\n\n🔄 Re-analyzing at ${timestamp}...`, analysisStartPos);
+            } else {
+                // First analysis - create the section
+                const lastLine = editor.lastLine();
+                analysisStartPos = {
+                    line: lastLine,
+                    ch: editor.getLine(lastLine).length
+                };
+
+                const timestamp = new Date().toLocaleString();
+                editor.replaceRange(`\n\n## Analysis History\n\n🔍 Analyzing at ${timestamp}...`, analysisStartPos);
+            }
+
+            try {
+                const eveningRegex = /\n### Evening Reflection\n([\s\S]*?)(?=\n## Analysis History|\z)/;
+                const match = eveningRegex.exec(editor.getValue());
+                let entryText = '';
+                if (match) {
+                    entryText = match[1]
+                } else {
+                    throw new Error("Could not extract text from evening reflection.")
+                }
+
+                const markdownIntents = await loadIntentsJsonAsMarkdown(plugin.app.vault, normalizePath(`${_view.file?.parent?.path}/daily_intents.json`));
+
+                const stream = await client.messages.create({
+                    max_tokens: 1024,
+                    messages: [{ role: 'user', content: createReflectOnIntentsPrompt(entryText, markdownIntents) }],
+                    model: 'claude-sonnet-4-5-20250929',
+                    stream: true,
+                });
+
+                let fullResponse = '';
+
+                // Process the stream
+                for await (const chunk of stream) {
+                    if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
+                        fullResponse += chunk.delta.text;
+                    }
+                }
+
+                const structuredIntents = await loadIntentsFromJson(plugin.app.vault, normalizePath(`${_view.file?.parent?.path}/daily_intents.json`))
+                const structuredActions = parseActionsAndRelateToIntentsFromMarkdown(extractJsonFromMarkdown(fullResponse), structuredIntents);
+
+                // Replace the "analyzing..." line with success
+                const currentContent = editor.getValue();
+                const analyzingPattern = hasAnalysis
+                    ? /🔄 Re-analyzing at .*?\.\.\./g
+                    : /🔍 Analyzing at .*?\.\.\./g;
+
+                const timestamp = new Date().toLocaleString();
+                const successLine = hasAnalysis
+                    ? `🔄 Re-analyzed at ${timestamp} ✅`
+                    : `🔍 Analyzed at ${timestamp} ✅`;
+
+                const updatedContent = currentContent.replace(analyzingPattern, successLine);
+                editor.setValue(updatedContent);
+
+                // need to update the internal file (hidden from obsidian) in the folder.
+                saveActionsAsJson(plugin.app.vault, structuredActions, normalizePath(`${_view.file?.parent?.path}/daily_actions.json`));
+
+
+                // now want to generate the daily summary
+                const structuredGoals = await getAndExtractGoals(plugin);
+
+
+                const second_stream = await client.messages.create({
+                    max_tokens: 1024,
+                    messages: [{ role: 'user', content: createDailySummaryPrompt(JSON.stringify(structuredActions), JSON.stringify(structuredGoals)) }],
+                    model: 'claude-sonnet-4-5-20250929',
+                    stream: true,
+                });
+
+                let secondFullResponse = '';
+
+                // Process the stream
+                for await (const chunk of second_stream) {
+                    if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
+                        secondFullResponse += chunk.delta.text;
+                    }
+                }
+
+                await plugin.app.vault.create(normalizePath(`${_view.file?.parent?.path}/llm summary.md`), secondFullResponse);
+
+
+                // Move cursor to end
+                editor.setCursor(editor.lastLine(), editor.getLine(editor.lastLine()).length);
+
+            } catch (error) {
+                const currentContent = editor.getValue();
+                const analyzingPattern = hasAnalysis
+                    ? /🔄 Re-analyzing at .*?\.\.\./g
+                    : /🔍 Analyzing at .*?\.\.\./g;
+
+                const timestamp = new Date().toLocaleString();
+                const errorLine = hasAnalysis
+                    ? `🔄 Re-analysis failed at ${timestamp} ❌: ${error.message}`
+                    : `🔍 Analysis failed at ${timestamp} ❌: ${error.message}`;
+
+                const updatedContent = currentContent.replace(analyzingPattern, errorLine);
+                editor.setValue(updatedContent);
+
+                // Move cursor to end
+                editor.setCursor(editor.lastLine(), editor.getLine(editor.lastLine()).length);
+            }
         }
     }
 }
+
 
 export const hardRefreshEveningNote = (plugin: Compound) => {
     return {
@@ -32,17 +158,17 @@ export const hardRefreshEveningNote = (plugin: Compound) => {
             const file = plugin.app.workspace.getActiveFile();
 
 
-            let actionsMarkdown = ''
+            let intentsMarkdown = ''
             try {
-                console.log(normalizePath(`${file?.parent?.parent?.path}/daily_actions.json`));
-                actionsMarkdown = await loadJsonActionsAsMarkdown(plugin.app.vault, normalizePath(`${file?.parent?.path}/daily_actions.json`))
+                console.log(normalizePath(`${file?.parent?.parent?.path}/daily_intents.json`));
+                intentsMarkdown = await loadIntentsJsonAsMarkdown(plugin.app.vault, normalizePath(`${file?.parent?.path}/daily_intents.json`))
 
             } catch {
-                actionsMarkdown = '\n\nNo actions found. Have you analyzed your morning entry?';
+                intentsMarkdown = '\n\nNo actions found. Have you analyzed your morning entry?';
             }
             if (file instanceof TFile) {
                 // Replace the entire content
-                await plugin.app.vault.modify(file, create_evening_text(actionsMarkdown) + "\n\n### Evening Reflection");
+                await plugin.app.vault.modify(file, create_evening_text(intentsMarkdown));
             }
         }
     }
@@ -92,7 +218,7 @@ export const finishMorningEntryCommand = (plugin: Compound) => {
                 const goalsObject = await getAndExtractGoals(plugin);
                 const stream = await client.messages.create({
                     max_tokens: 1024,
-                    messages: [{ role: 'user', content: createExtractActionsPrompt(entryText, goalsToString(goalsObject)) }],
+                    messages: [{ role: 'user', content: createExtractIntentsPrompt(entryText, goalsToString(goalsObject)) }],
                     model: 'claude-sonnet-4-5-20250929',
                     stream: true,
                 });
@@ -107,7 +233,7 @@ export const finishMorningEntryCommand = (plugin: Compound) => {
                 }
 
                 const actionJsonString = extractJsonFromMarkdown(fullResponse);
-                const structuredActions = parseActionsFromJson(actionJsonString);
+                const structuredActions = parseIntentsFromJson(actionJsonString);
 
 
                 // Replace the "analyzing..." line with success
@@ -125,7 +251,7 @@ export const finishMorningEntryCommand = (plugin: Compound) => {
                 editor.setValue(updatedContent);
 
                 // need to update the internal file (hidden from obsidian) in the folder.
-                saveActionsAsJson(plugin.app.vault, structuredActions, normalizePath(`${_view.file?.parent?.path}/daily_actions.json`));
+                saveIntentsAsJson(plugin.app.vault, structuredActions, normalizePath(`${_view.file?.parent?.path}/daily_intents.json`));
 
                 // Move cursor to end
                 editor.setCursor(editor.lastLine(), editor.getLine(editor.lastLine()).length);
@@ -176,7 +302,7 @@ export function create_evening_reflection_callback(app: App) {
 
             let actionsMarkdown = ''
             try {
-                actionsMarkdown = await loadJsonActionsAsMarkdown(this.app.vault, normalizePath(`${todaysPath}/daily_actions.json`))
+                actionsMarkdown = await loadIntentsJsonAsMarkdown(this.app.vault, normalizePath(`${todaysPath}/daily_intents.json`))
 
             } catch {
                 actionsMarkdown = 'No actions found. Have you analyzed your morning entry?';

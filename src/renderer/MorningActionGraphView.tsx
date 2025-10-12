@@ -2,10 +2,10 @@ import * as React from 'react';
 import { StrictMode } from 'react';
 import { ItemView, WorkspaceLeaf } from 'obsidian';
 import { Root, createRoot } from 'react-dom/client';
-import {ActionGoalGraph} from './Graph';
-import { loadActionsFromJson } from 'src/utils';
+import {IntentGraph} from './Graph';
+import { loadIntentsFromJson } from 'src/utils';
 import { normalizePath } from 'obsidian';
-import { Action } from 'src/types';
+import { Intent } from 'src/types';
 
 export const MORNING_GRAPH_VIEW = 'morning-graph-view';
 
@@ -32,16 +32,16 @@ export class MorningGraphView extends ItemView {
 		const file = this.app.workspace.getActiveFile();
   		const parentPath = file?.parent?.path;
 
-		let actions: Action[] = [];
+		let actions: Intent[] = [];
 		try{
-			actions = await loadActionsFromJson(this.app.vault, normalizePath(`${parentPath}/daily_actions.json`))
+			actions = await loadIntentsFromJson(this.app.vault, normalizePath(`${parentPath}/daily_intents.json`))
 		} catch {
 			console.error("No actions found.")
 		}
 
 		this.root.render(
 			<StrictMode>
-				<ActionGoalGraph data={actions}/>,
+				<IntentGraph data={actions}/>,
 			</StrictMode>,
 		);
 	}

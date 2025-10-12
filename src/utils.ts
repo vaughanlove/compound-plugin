@@ -1,6 +1,6 @@
 import type Compound from "./main";
 import { App, normalizePath, TFile, Vault } from "obsidian";
-import { Action, Goal } from "./types";
+import { Intent, Goal, Action } from "./types";
 
 export function extract_goals_from_text(text: string) {
     // regex out goals in goals.ts
@@ -80,8 +80,26 @@ export const loadGoalsFromJson = async (
     return JSON.parse(content) as Goal[];
 };
 
-export const parseActionsFromJson = (jsonString: string): Action[] => {
-    return JSON.parse(jsonString) as Action[];
+export const parseIntentsFromJson = (jsonString: string): Intent[] => {
+    const intentsWithoutIds = JSON.parse(jsonString) as Omit<Intent, 'id'>[];
+    return intentsWithoutIds.map((intent, index) => ({
+        id: index + 1, // note that LLMs much prefer to start at id =1, very clear quirk with claude. Don't want to waste instructions input on making explicit to zero.
+        ...intent
+    }));
+};
+export const saveIntentsAsJson = async (
+    vault: Vault,
+    actions: Intent[],
+    filepath: string
+): Promise<void> => {
+    const content = JSON.stringify(actions, null, 2);
+    const file = vault.getAbstractFileByPath(filepath);
+    
+    if (file instanceof TFile) {
+        await vault.modify(file, content);
+    } else {
+        await vault.create(filepath, content);
+    }
 };
 
 export const saveActionsAsJson = async (
@@ -108,21 +126,21 @@ export const extractJsonFromMarkdown = (text: string): string => {
     return text.trim();
 };
 
-export const loadActionsFromJson = async (
+export const loadIntentsFromJson = async (
     vault: Vault,
     filepath: string
-): Promise<Action[]> => {
+): Promise<Intent[]> => {
     const file = vault.getAbstractFileByPath(filepath);
     
     if (file instanceof TFile) {
         const content = await vault.read(file);
-        return parseActionsFromJson(content);
+        return parseIntentsFromJson(content);
     } else {
         throw new Error(`File not found: ${filepath}`);
     }
 };
 
-export const loadJsonActionsAsMarkdown = async (
+export const loadIntentsJsonAsMarkdown = async (
     vault: Vault,
     filepath: string
 ): Promise<string> => {
@@ -130,13 +148,13 @@ export const loadJsonActionsAsMarkdown = async (
     
     if (file instanceof TFile) {
         const content = await vault.read(file);
-        return convertActionArrayToMarkdown(parseActionsFromJson(content));
+        return convertActionArrayToMarkdown(parseIntentsFromJson(content));
     } else {
         throw new Error(`File not found: ${filepath}`);
     }
 }
 
-function convertActionArrayToMarkdown(actions: Action[]): string {
+function convertActionArrayToMarkdown(actions: Intent[]): string {
     if (actions.length === 0) {
         return "\n\nNo actions available. Perhaps you need to analyze your morning reflection?";
     }
@@ -149,3 +167,23 @@ function convertActionArrayToMarkdown(actions: Action[]): string {
 
     return markdown;
 }
+
+export const parseActionsAndRelateToIntentsFromMarkdown = (markdown: string, intents: Intent[]): Action[] => {
+    const actionsFromLLM = JSON.parse(markdown) as Array<{
+        id: number;
+        completed: string;
+        explanation: string;
+    }>;
+    
+    return actionsFromLLM.map(action => {
+        const intent = intents.find(i => i.id === action.id);
+        if (!intent) {
+            throw new Error(`No intent found with id ${action.id}`);
+        }
+        return {
+            ...intent,
+            completed: action.completed,
+            explanation: action.explanation
+        };
+    });
+};

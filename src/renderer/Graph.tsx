@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import * as d3 from 'd3';
-import {Action, GoalRelation} from '../types'
+import {Intent, GoalRelation} from '../types'
 
 interface Node extends d3.SimulationNodeDatum {
   id: string;
@@ -15,7 +15,7 @@ interface Link {
   reasoning?: string;
 }
 
-export const ActionGoalGraph = ({data}: {data: Action[]}) => {
+export const IntentGraph = ({data}: {data: Intent[]}) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -265,4 +265,4 @@ export const ActionGoalGraph = ({data}: {data: Action[]}) => {
   );
 };
 
-export default ActionGoalGraph;
+export default IntentGraph;
