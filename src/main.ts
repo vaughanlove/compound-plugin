@@ -4,8 +4,9 @@ import { DEFAULT_SETTINGS } from 'src/constants';
 import { CompoundSettings } from 'src/interfaces';
 import { CompoundSettingTab } from 'src/settings';
 // import * as d3 from 'd3';
-import { MORNING_GRAPH_VIEW, MorningGraphView } from './renderer/MorningActionGraphView';
+import { MORNING_GRAPH_VIEW, MorningGraphView } from './renderer/views/MorningActionGraphView';
 import { handleOpenMorningFile } from './event_handlers';
+import {EVENING_GRAPH_VIEW, EveningGraphView} from './renderer/views/EveningActionGraphView'
 // maybe use bases view for a calendar overview of actions?
 
 // Define your data type
@@ -27,6 +28,11 @@ export default class Compound extends Plugin {
 			MORNING_GRAPH_VIEW,
 			(leaf) => new MorningGraphView(leaf)
 		);
+
+		this.registerView(
+			EVENING_GRAPH_VIEW,
+			(leaf) => new EveningGraphView(leaf)
+		)
 
 		this.app.workspace.on('file-open', handleOpenMorningFile(this.app.workspace));
 

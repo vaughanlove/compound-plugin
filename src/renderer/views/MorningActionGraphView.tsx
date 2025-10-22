@@ -2,7 +2,7 @@ import * as React from 'react';
 import { StrictMode } from 'react';
 import { ItemView, WorkspaceLeaf } from 'obsidian';
 import { Root, createRoot } from 'react-dom/client';
-import {IntentGraph} from './Graph';
+import {Graph} from '../Graph';
 import { loadIntentsFromJson } from 'src/utils';
 import { normalizePath } from 'obsidian';
 import { Intent } from 'src/types';
@@ -32,16 +32,16 @@ export class MorningGraphView extends ItemView {
 		const file = this.app.workspace.getActiveFile();
   		const parentPath = file?.parent?.path;
 
-		let actions: Intent[] = [];
+		let intents: Intent[] = [];
 		try{
-			actions = await loadIntentsFromJson(this.app.vault, normalizePath(`${parentPath}/daily_intents.json`))
+			intents = await loadIntentsFromJson(this.app.vault, normalizePath(`${parentPath}/daily_intents.json`))
 		} catch {
 			console.error("No actions found.")
 		}
 
 		this.root.render(
 			<StrictMode>
-				<IntentGraph data={actions}/>,
+				<Graph data={intents} mode={'intent'}/>,
 			</StrictMode>,
 		);
 	}

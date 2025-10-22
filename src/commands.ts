@@ -3,8 +3,10 @@ import { create_evening_text, GOAL_TEMPLATE, GOALS_INSTRUCTION_TEMPLATE, HOW_TO_
 import { DEFAULT_JOURNAL_GET_STARTED_PATH, DEFAULT_JOURNAL_GOALS_PATH, DEFAULT_JOURNAL_PATH } from "./constants";
 import { extractJsonFromMarkdown, getAndExtractGoals, goalsToString, loadIntentsFromJson, loadIntentsJsonAsMarkdown, parseActionsAndRelateToIntentsFromMarkdown, parseIntentsFromJson, revealFileInExplorer, saveActionsAsJson, saveGoalsAsJson, saveIntentsAsJson } from "./utils";
 import { createDailySummaryPrompt, createExtractIntentsPrompt, createReflectOnIntentsPrompt } from "./prompts";
-import { createClient } from "./llm";
+import { createClient, query_llm } from "./llm";
 import type Compound from "./main";
+import { extractRegexPatternFromString } from "./regex";
+import { ANALYSIS_SECTION_REGEX } from "./regex_patterns";
 
 export const INSERT_GOAL_COMMAND = {
     id: 'Insert new goal',
@@ -19,39 +21,43 @@ export const reflectOnEvening = (plugin: Compound) => {
         id: 'compound-reflect',
         name: 'Reflect',
         editorCallback: async (editor: Editor, _view: MarkdownView) => {
-            const client = createClient(plugin.settings.ANTHROPIC_API_KEY);
+            const client = await createClient(plugin.settings.ANTHROPIC_API_KEY);
+            if (!client.ok) {
+                new Notice(client.error)
+                return
+            }
 
-            // Check if there's already an relfec section
             const content = editor.getValue();
-            const analysisRegex = /\n## Analysis History\n([\s\S]*?)(?=\n##|\n---|\z)/;
-            const hasAnalysis = analysisRegex.test(content);
+
+            // Check if there's already an reflect section
+            const analysisSectionMatch = extractRegexPatternFromString(content, ANALYSIS_SECTION_REGEX)
+            if (!analysisSectionMatch.ok) {
+                new Notice(analysisSectionMatch.error)
+                return;
+            }
 
             let analysisStartPos;
 
-            if (hasAnalysis) {
-                // Find where the Analysis History section is
-                const match = content.match(analysisRegex);
-                const matchIndex = content.indexOf(match![0]); // nullish coalesing not great
+            // Find where the Analysis History section is
+            const matchIndex = content.indexOf(analysisSectionMatch.value); // nullish coalesing not great
 
-                analysisStartPos = {
-                    line: editor.lastLine(),
-                    ch: editor.getLine(editor.lastLine()).length
-                };
+            // need a nice abstraction for replacing text.
+            analysisStartPos = {
+                line: editor.lastLine(),
+                ch: editor.getLine(editor.lastLine()).length
+            };
 
-                // Add re-analysis indicator
-                const timestamp = new Date().toLocaleString();
-                editor.replaceRange(`\n\n🔄 Re-analyzing at ${timestamp}...`, analysisStartPos);
-            } else {
-                // First analysis - create the section
-                const lastLine = editor.lastLine();
-                analysisStartPos = {
-                    line: lastLine,
-                    ch: editor.getLine(lastLine).length
-                };
+            // Add re-analysis indicator
+            const timestamp = new Date().toLocaleString();
+            editor.replaceRange(`\n\n🔄 Re-analyzing at ${timestamp}...`, analysisStartPos);
+            // First analysis - create the section
+            const lastLine = editor.lastLine();
+            analysisStartPos = {
+                line: lastLine,
+                ch: editor.getLine(lastLine).length
+            };
 
-                const timestamp = new Date().toLocaleString();
-                editor.replaceRange(`\n\n## Analysis History\n\n🔍 Analyzing at ${timestamp}...`, analysisStartPos);
-            }
+            editor.replaceRange(`\n\n## Analysis History\n\n🔍 Analyzing at ${timestamp}...`, analysisStartPos);
 
             try {
                 const eveningRegex = /\n### Evening Reflection\n([\s\S]*?)(?=\n## Analysis History|\z)/;
@@ -64,34 +70,23 @@ export const reflectOnEvening = (plugin: Compound) => {
                 }
 
                 const markdownIntents = await loadIntentsJsonAsMarkdown(plugin.app.vault, normalizePath(`${_view.file?.parent?.path}/daily_intents.json`));
+                const llmResponse = await query_llm(client.value, createReflectOnIntentsPrompt(entryText, markdownIntents));
 
-                const stream = await client.messages.create({
-                    max_tokens: 1024,
-                    messages: [{ role: 'user', content: createReflectOnIntentsPrompt(entryText, markdownIntents) }],
-                    model: 'claude-sonnet-4-5-20250929',
-                    stream: true,
-                });
-
-                let fullResponse = '';
-
-                // Process the stream
-                for await (const chunk of stream) {
-                    if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
-                        fullResponse += chunk.delta.text;
-                    }
+                if (!llmResponse.ok) {
+                    new Notice(llmResponse.error);
+                    return;
                 }
 
                 const structuredIntents = await loadIntentsFromJson(plugin.app.vault, normalizePath(`${_view.file?.parent?.path}/daily_intents.json`))
-                const structuredActions = parseActionsAndRelateToIntentsFromMarkdown(extractJsonFromMarkdown(fullResponse), structuredIntents);
+                const structuredActions = parseActionsAndRelateToIntentsFromMarkdown(extractJsonFromMarkdown(llmResponse.value), structuredIntents);
 
-                // Replace the "analyzing..." line with success
                 const currentContent = editor.getValue();
-                const analyzingPattern = hasAnalysis
+                const analyzingPattern = analysisSectionMatch.ok
                     ? /🔄 Re-analyzing at .*?\.\.\./g
                     : /🔍 Analyzing at .*?\.\.\./g;
 
                 const timestamp = new Date().toLocaleString();
-                const successLine = hasAnalysis
+                const successLine = analysisSectionMatch.ok
                     ? `🔄 Re-analyzed at ${timestamp} ✅`
                     : `🔍 Analyzed at ${timestamp} ✅`;
 
@@ -106,7 +101,7 @@ export const reflectOnEvening = (plugin: Compound) => {
                 const structuredGoals = await getAndExtractGoals(plugin);
 
 
-                const second_stream = await client.messages.create({
+                const second_stream = await client.value.messages.create({
                     max_tokens: 1024,
                     messages: [{ role: 'user', content: createDailySummaryPrompt(JSON.stringify(structuredActions), JSON.stringify(structuredGoals)) }],
                     model: 'claude-sonnet-4-5-20250929',
@@ -130,12 +125,12 @@ export const reflectOnEvening = (plugin: Compound) => {
 
             } catch (error) {
                 const currentContent = editor.getValue();
-                const analyzingPattern = hasAnalysis
+                const analyzingPattern = analysisSectionMatch.ok
                     ? /🔄 Re-analyzing at .*?\.\.\./g
                     : /🔍 Analyzing at .*?\.\.\./g;
 
                 const timestamp = new Date().toLocaleString();
-                const errorLine = hasAnalysis
+                const errorLine = analysisSectionMatch.ok
                     ? `🔄 Re-analysis failed at ${timestamp} ❌: ${error.message}`
                     : `🔍 Analysis failed at ${timestamp} ❌: ${error.message}`;
 
@@ -179,7 +174,11 @@ export const finishMorningEntryCommand = (plugin: Compound) => {
         id: 'compound-done-note',
         name: 'Done compound note',
         editorCallback: async (editor: Editor, _view: MarkdownView) => {
-            const client = createClient(plugin.settings.ANTHROPIC_API_KEY);
+            const client = await createClient(plugin.settings.ANTHROPIC_API_KEY);
+            if (!client.ok) {
+                new Notice(client.error)
+                return;
+            }
 
             // Check if there's already an analysis section
             const content = editor.getValue();
@@ -216,7 +215,7 @@ export const finishMorningEntryCommand = (plugin: Compound) => {
             try {
                 const entryText = _view.data.slice(93);
                 const goalsObject = await getAndExtractGoals(plugin);
-                const stream = await client.messages.create({
+                const stream = await client.value.messages.create({
                     max_tokens: 1024,
                     messages: [{ role: 'user', content: createExtractIntentsPrompt(entryText, goalsToString(goalsObject)) }],
                     model: 'claude-sonnet-4-5-20250929',

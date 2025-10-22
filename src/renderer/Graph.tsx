@@ -1,11 +1,13 @@
 import React, { useEffect, useRef } from 'react';
 import * as d3 from 'd3';
-import {Intent, GoalRelation} from '../types'
+import { Intent, Action } from '../types'
 
 interface Node extends d3.SimulationNodeDatum {
   id: string;
   label: string;
-  type: 'action' | 'goal';
+  type: 'intent' | 'action' | 'goal';
+  completed?: string;
+  explanation?: string;
 }
 
 interface Link {
@@ -15,25 +17,41 @@ interface Link {
   reasoning?: string;
 }
 
-export const IntentGraph = ({data}: {data: Intent[]}) => {
+interface GraphProps {
+  data: Intent[] | Action[];
+  mode: 'intent' | 'action';
+}
+
+// Type guard to check if an item is an Action
+function isAction(item: Intent | Action): item is Action {
+  return 'completed' in item && 'explanation' in item;
+}
+
+export const Graph = ({ data, mode }: GraphProps) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-
     // Process data into nodes and links
     const nodes: Node[] = [];
     const links: Link[] = [];
     const goalMap = new Map<string, Node>();
 
     data.forEach((item, index) => {
-      // Add action node
-      const actionNode: Node = {
-        id: `action-${index}`,
+      // Add intent/action node
+      const itemNode: Node = {
+        id: `${mode}-${index}`,
         label: item.action,
-        type: 'action' as const
+        type: mode,
       };
-      nodes.push(actionNode);
+
+      // Add completion info if it's an Action
+      if (isAction(item)) {
+        itemNode.completed = item.completed;
+        itemNode.explanation = item.explanation;
+      }
+
+      nodes.push(itemNode);
 
       // Process goal relations
       item.goal_relations.forEach(relation => {
@@ -50,7 +68,7 @@ export const IntentGraph = ({data}: {data: Intent[]}) => {
 
         // Add link
         links.push({
-          source: actionNode.id,
+          source: itemNode.id,
           target: `goal-${relation.goal_name}`,
           relationType: relation.relation_type,
           reasoning: relation.reasoning
@@ -118,10 +136,18 @@ export const IntentGraph = ({data}: {data: Intent[]}) => {
         .on("drag", dragged)
         .on("end", dragended));
 
-    // Add circles to nodes
+    // Add circles to nodes - color based on completion status for actions
     node.append("circle")
       .attr("r", d => d.type === 'goal' ? 25 : 20)
-      .attr("fill", d => d.type === 'goal' ? "#3b82f6" : "#8b5cf6")
+      .attr("fill", d => {
+        if (d.type === 'goal') return "#3b82f6";
+        if (d.type === 'action') {
+          if (d.completed === 'yes') return "#22c55e";
+          if (d.completed === 'partial') return "#f59e0b";
+          return "#ef4444";
+        }
+        return "#8b5cf6"; // intent
+      })
       .attr("stroke", "#fff")
       .attr("stroke-width", 2);
 
@@ -184,8 +210,17 @@ export const IntentGraph = ({data}: {data: Intent[]}) => {
       .style("z-index", "1000");
 
     node.on("mouseover", function(event, d) {
-      tooltip.style("visibility", "visible")
-        .html(`<strong>${d.type === 'goal' ? 'Goal' : 'Action'}:</strong><br/>${d.label}`);
+      let content = `<strong>${d.type === 'goal' ? 'Goal' : d.type === 'action' ? 'Action' : 'Intent'}:</strong><br/>${d.label}`;
+      
+      if (d.type === 'action' && d.completed) {
+        const statusLabel = d.completed === 'yes' ? 'Completed' : d.completed === 'partial' ? 'Partially Completed' : 'Not Completed';
+        content += `<br/><br/><strong>Status:</strong> ${statusLabel}`;
+        if (d.explanation) {
+          content += `<br/><strong>Note:</strong> ${d.explanation}`;
+        }
+      }
+      
+      tooltip.style("visibility", "visible").html(content);
     })
     .on("mousemove", function(event) {
       tooltip.style("top", (event.pageY - 10) + "px")
@@ -240,16 +275,31 @@ export const IntentGraph = ({data}: {data: Intent[]}) => {
     return () => {
       tooltip.remove();
     };
-  }, []);
+  }, [data, mode]);
 
   return (
-    <div       ref={containerRef}
- className="w-full h-screen flex flex-col items-center justify-center bg-gray-50 p-4">
+    <div ref={containerRef} className="w-full h-screen flex flex-col items-center justify-center bg-gray-50 p-4">
       <div className="mb-4 flex gap-6 text-sm">
         <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded-full bg-purple-500"></div>
-          <span>Actions</span>
+          <div className={`w-4 h-4 rounded-full ${mode === 'intent' ? 'bg-purple-500' : 'bg-gray-400'}`}></div>
+          <span>{mode === 'intent' ? 'Intents' : 'Actions (Intent)'}</span>
         </div>
+        {mode === 'action' && (
+          <>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded-full bg-green-500"></div>
+              <span>Completed</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded-full bg-amber-500"></div>
+              <span>Partial</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded-full bg-red-500"></div>
+              <span>Not Done</span>
+            </div>
+          </>
+        )}
         <div className="flex items-center gap-2">
           <div className="w-4 h-4 rounded-full bg-blue-500"></div>
           <span>Goals</span>
@@ -265,4 +315,4 @@ export const IntentGraph = ({data}: {data: Intent[]}) => {
   );
 };
 
-export default IntentGraph;
+export default Graph;

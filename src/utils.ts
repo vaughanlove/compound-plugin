@@ -1,6 +1,7 @@
 import type Compound from "./main";
 import { App, normalizePath, TFile, Vault } from "obsidian";
 import { Intent, Goal, Action } from "./types";
+import { Result } from "./error";
 
 export function extract_goals_from_text(text: string) {
     // regex out goals in goals.ts
@@ -80,6 +81,17 @@ export const loadGoalsFromJson = async (
     return JSON.parse(content) as Goal[];
 };
 
+export const loadActionsFromJson = async (
+    vault: Vault,
+    filepath: string
+): Promise<Action[]> => {
+    const file = vault.getAbstractFileByPath(filepath);
+    if (!file) return [];
+
+    const content = await vault.read(file as any);
+    return JSON.parse(content) as Action[];
+};
+
 export const parseIntentsFromJson = (jsonString: string): Intent[] => {
     const intentsWithoutIds = JSON.parse(jsonString) as Omit<Intent, 'id'>[];
     return intentsWithoutIds.map((intent, index) => ({
@@ -117,6 +129,12 @@ export const saveActionsAsJson = async (
     }
 };
 
+
+/**
+ * Assumes that a text block has one json entry and returns the text inside that block.
+ * 
+ * Useful for downstream extraction using tryParseJsonFromText
+ */
 export const extractJsonFromMarkdown = (text: string): string => {
     const jsonBlockMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
     if (jsonBlockMatch) {
@@ -187,3 +205,20 @@ export const parseActionsAndRelateToIntentsFromMarkdown = (markdown: string, int
         };
     });
 };
+
+
+export function tryParseJsonFromText<T>(text: string): Result<T, string> {
+    try {
+        return {ok: true, value: JSON.parse(text) as T};
+    } catch (e) {
+        return {
+            ok: false,
+            error: e instanceof Error ? e.message : "Unknown parse error"
+        }
+    }
+}
+
+export function parseJsonFromMarkdown<T>(text: string): Result<T, string> {
+    const extracted = extractJsonFromMarkdown(text);
+    return tryParseJsonFromText<T>(extracted);
+}

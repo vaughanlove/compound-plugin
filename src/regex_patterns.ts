@@ -1,0 +1,1 @@
+export const ANALYSIS_SECTION_REGEX = /\n## Analysis History\n([\s\S]*?)(?=\n##|\n---|\z)/;

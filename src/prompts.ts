@@ -130,22 +130,28 @@ Return only the JSON array, no additional commentary.`
 export const createReflectOnIntentsPrompt = (
   reflection: string, 
   intents_json: string
-) => `You are an AI assistant that analyzes evening reflections to determine which intents from the day were completed, partially completed, or not completed.
+) => `You are an AI assistant that analyzes reflections to determine which intents from the day were completed, partially completed, or not completed, and extracts todo items for the next day.
 
 # Input
 You will receive:
-1. An evening reflection (free-form text about what the user accomplished, didn't do, or is thinking about)
+1. A reflection (free-form text about what the user accomplished, didn't do, or is thinking about)
 2. A JSON array of intents extracted from the morning journal entry, each with an "id" field
 
 # Task
-Analyze the evening reflection against the morning intents and:
+Analyze the reflection against the morning intents and:
 1. Determine whether each intent was completed, partially completed, or not completed
 2. Provide a clear explanation of what happened based on the reflection
-3. Return a minimal JSON structure that references intents by their id
-4. **IMPORTANT**: You must return an action for EVERY intent provided. Use the exact same id from each intent.
+3. Extract todo items that the user may want to come back to the next day
+4. Return two separate JSON structures:
+   - "actions": Analysis of all intents from the morning
+   - "todos": Carry-over tasks for the next day
+5. **IMPORTANT**: You must return an action for EVERY intent provided. Use the exact same id from each intent.
 
 # Output Format
-Return a JSON array of action objects. Each action should have:
+Return a JSON object with two properties:
+
+## 1. "actions" (array)
+An array of action objects analyzing each morning intent. Each action should have:
 - "id": The EXACT id from the corresponding intent (number) - do not skip any ids or create new ones
 - "completed": One of three values (string):
   - "yes" - The action was fully completed
@@ -155,6 +161,16 @@ Return a JSON array of action objects. Each action should have:
   - For "yes": Describe what was accomplished
   - For "partial": Explain what was done and what remains
   - For "no": Explain why it wasn't done (if mentioned) or note it wasn't mentioned in the reflection
+
+## 2. "todos" (array)
+An array of todo items for the next day. Each todo should have:
+- "task": A clear, actionable description of what needs to be done (string)
+- "context": Why this task is important or what it relates to (string)
+- "source": One of the following (string):
+  - "incomplete" - Carried over from an incomplete morning intent
+  - "partial" - Follow-up needed from a partially completed intent
+  - "new" - New task mentioned in the reflection that wasn't in morning intents
+- "related_intent_id": (optional) The id of the morning intent this relates to, if applicable (number or null)
 
 # Guidelines for Completion Status
 - **You must provide a status for EVERY intent in the input, even if not mentioned in the reflection**
@@ -167,68 +183,101 @@ Return a JSON array of action objects. Each action should have:
 # Guidelines for Explanations
 - Be specific and reference details from the reflection
 - Keep explanations concise (1-2 sentences typically)
-- If not mentioned in reflection, say "Not mentioned in evening reflection"
+- If not mentioned in reflection, say "Not mentioned in reflection"
 - Include relevant context about why something wasn't completed if the user explained it
 - Avoid speculation - stick to what's in the reflection
+
+# Guidelines for Todo Extraction
+- Extract tasks that were:
+  - Not completed from morning intents
+  - Partially completed and need follow-up
+  - Newly mentioned in reflection as things to do tomorrow
+  - Explicitly stated as blockers or next steps
+- Make tasks specific and actionable
+- Provide meaningful context so the user understands why this matters
+- Avoid duplicating completed tasks
+- If no todos are identified, return an empty array
 
 # Example Input Intents
 \`\`\`json
 [
   {
-    "id": 0,
+    "id": 1,
     "action": "Think deeply about LLM evaluation approaches",
     "goal_relations": [...],
     "insights": [...]
   },
   {
-    "id": 1,
+    "id": 2,
     "action": "Implement intent extraction feature",
     "goal_relations": [],
     "insights": []
   },
   {
-    "id": 2,
+    "id": 3,
     "action": "Go for a run",
     "goal_relations": [...]
   }
 ]
 \`\`\`
 
-# Example Evening Reflection
-"Spent about 2 hours thinking through the evaluation approach. Made good progress on the framework but didn't finish the full analysis. Got distracted by other tasks in the afternoon. Did manage to squeeze in a quick 20 minute run though!"
+# Example Reflection
+"Spent about 2 hours thinking through the evaluation approach. Made good progress on the framework but didn't finish the full analysis - need to research benchmark datasets tomorrow. Got distracted by other tasks in the afternoon. Did manage to squeeze in a quick 20 minute run though! Also realized I should schedule that team meeting about the product roadmap."
 
 # Example Output
 \`\`\`json
-[
-  {
-    "id": 0,
-    "completed": "partial",
-    "explanation": "Spent 2 hours on the evaluation framework and made good progress, but didn't complete the full analysis due to afternoon distractions."
-  },
-  {
-    "id": 1,
-    "completed": "no",
-    "explanation": "Not mentioned in evening reflection."
-  },
-  {
-    "id": 2,
-    "completed": "yes",
-    "explanation": "Completed a 20 minute run."
-  }
-]
+{
+  "actions": [
+    {
+      "id": 1,
+      "completed": "partial",
+      "explanation": "Spent 2 hours on the evaluation framework and made good progress, but didn't complete the full analysis due to afternoon distractions."
+    },
+    {
+      "id": 2,
+      "completed": "no",
+      "explanation": "Not mentioned in reflection."
+    },
+    {
+      "id": 3,
+      "completed": "yes",
+      "explanation": "Completed a 20 minute run."
+    }
+  ],
+  "todos": [
+    {
+      "task": "Research benchmark datasets for LLM evaluation",
+      "context": "Needed to complete the evaluation framework analysis started today",
+      "source": "partial",
+      "related_intent_id": 1
+    },
+    {
+      "task": "Implement intent extraction feature",
+      "context": "Not started today, carry over from morning plan",
+      "source": "incomplete",
+      "related_intent_id": 2
+    },
+    {
+      "task": "Schedule team meeting about product roadmap",
+      "context": "New realization from today's reflection",
+      "source": "new",
+      "related_intent_id": null
+    }
+  ]
+}
 \`\`\`
 
 Now analyze the following:
 
-<evening_reflection>
+<reflection>
 ${reflection}
-</evening_reflection>
+</reflection>
 
 <morning_intents>
 ${intents_json}
 </morning_intents>
 
-Return only the JSON array, no additional commentary.`
+Return only the JSON object with "actions" and "todos" properties, no additional commentary.`
 
 export const createDailySummaryPrompt = (actions_json: string, goals_json: string) => `You are an AI assistant that creates objective daily summaries based on a user's intended actions and what they actually accomplished.
 
