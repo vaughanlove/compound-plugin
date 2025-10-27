@@ -1,6 +1,6 @@
 import type Compound from "./main";
-import { App, normalizePath, TFile, Vault } from "obsidian";
-import { Intent, Goal, Action } from "./types";
+import { App, Editor, normalizePath, TFile, Vault } from "obsidian";
+import { Intent, Goal, Action, UpdateType } from "./types";
 import { Result } from "./error";
 
 export function extract_goals_from_text(text: string) {
@@ -106,7 +106,7 @@ export const saveIntentsAsJson = async (
 ): Promise<void> => {
     const content = JSON.stringify(actions, null, 2);
     const file = vault.getAbstractFileByPath(filepath);
-    
+
     if (file instanceof TFile) {
         await vault.modify(file, content);
     } else {
@@ -121,7 +121,7 @@ export const saveActionsAsJson = async (
 ): Promise<void> => {
     const content = JSON.stringify(actions, null, 2);
     const file = vault.getAbstractFileByPath(filepath);
-    
+
     if (file instanceof TFile) {
         await vault.modify(file, content);
     } else {
@@ -149,7 +149,7 @@ export const loadIntentsFromJson = async (
     filepath: string
 ): Promise<Intent[]> => {
     const file = vault.getAbstractFileByPath(filepath);
-    
+
     if (file instanceof TFile) {
         const content = await vault.read(file);
         return parseIntentsFromJson(content);
@@ -163,7 +163,7 @@ export const loadIntentsJsonAsMarkdown = async (
     filepath: string
 ): Promise<string> => {
     const file = vault.getAbstractFileByPath(filepath);
-    
+
     if (file instanceof TFile) {
         const content = await vault.read(file);
         return convertActionArrayToMarkdown(parseIntentsFromJson(content));
@@ -186,14 +186,8 @@ function convertActionArrayToMarkdown(actions: Intent[]): string {
     return markdown;
 }
 
-export const parseActionsAndRelateToIntentsFromMarkdown = (markdown: string, intents: Intent[]): Action[] => {
-    const actionsFromLLM = JSON.parse(markdown) as Array<{
-        id: number;
-        completed: string;
-        explanation: string;
-    }>;
-    
-    return actionsFromLLM.map(action => {
+export const parseActionsAndRelateToIntentsFromMarkdown = (actions: Action[], intents: Intent[]): Action[] => {
+    return actions.map(action => {
         const intent = intents.find(i => i.id === action.id);
         if (!intent) {
             throw new Error(`No intent found with id ${action.id}`);
@@ -209,7 +203,7 @@ export const parseActionsAndRelateToIntentsFromMarkdown = (markdown: string, int
 
 export function tryParseJsonFromText<T>(text: string): Result<T, string> {
     try {
-        return {ok: true, value: JSON.parse(text) as T};
+        return { ok: true, value: JSON.parse(text) as T };
     } catch (e) {
         return {
             ok: false,
@@ -221,4 +215,72 @@ export function tryParseJsonFromText<T>(text: string): Result<T, string> {
 export function parseJsonFromMarkdown<T>(text: string): Result<T, string> {
     const extracted = extractJsonFromMarkdown(text);
     return tryParseJsonFromText<T>(extracted);
+}
+
+export function updateAnalysisText(editor: Editor, type: UpdateType): void {
+    const content = editor.getValue();
+    const analysisRegex = /\n## Analysis History\n([\s\S]*?)(?=\n##|\n---|\z)/;
+    const hasAnalysis = analysisRegex.test(content);
+    if (type == UpdateType.initialize) {
+        // Check if there's already an analysis section
+        let analysisStartPos;
+
+        if (hasAnalysis) {
+            // Find where the Analysis History section is
+            const match = content.match(analysisRegex);
+            const matchIndex = content.indexOf(match![0]); // nullish coalesing not great
+
+            analysisStartPos = {
+                line: editor.lastLine(),
+                ch: editor.getLine(editor.lastLine()).length
+            };
+
+            // Add re-analysis indicator
+            const timestamp = new Date().toLocaleString();
+            editor.replaceRange(`\n\n🔄 Re-analyzing at ${timestamp}...`, analysisStartPos);
+        } else {
+            // First analysis - create the section
+            const lastLine = editor.lastLine();
+            analysisStartPos = {
+                line: lastLine,
+                ch: editor.getLine(lastLine).length
+            };
+
+            const timestamp = new Date().toLocaleString();
+            editor.replaceRange(`\n\n## Analysis History\n\n🔍 Analyzing at ${timestamp}...`, analysisStartPos);
+        }
+    }
+    else if (type == UpdateType.success) {
+        // Replace the "analyzing..." line with success
+        const currentContent = editor.getValue();
+        const analyzingPattern = hasAnalysis
+            ? /🔄 Re-analyzing at .*?\.\.\./g
+            : /🔍 Analyzing at .*?\.\.\./g;
+
+        const timestamp = new Date().toLocaleString();
+        const successLine = hasAnalysis
+            ? `🔄 Re-analyzed at ${timestamp} ✅`
+            : `🔍 Analyzed at ${timestamp} ✅`;
+
+        const updatedContent = currentContent.replace(analyzingPattern, successLine);
+        editor.setValue(updatedContent);
+    }
+
+    else if (type == UpdateType.failure) {
+        const currentContent = editor.getValue();
+        const analyzingPattern = hasAnalysis
+            ? /🔄 Re-analyzing at .*?\.\.\./g
+            : /🔍 Analyzing at .*?\.\.\./g;
+
+        const timestamp = new Date().toLocaleString();
+        const errorLine = hasAnalysis
+            ? `🔄 Re-analysis failed at ${timestamp} ❌`
+            : `🔍 Analysis failed at ${timestamp} ❌`;
+
+        const updatedContent = currentContent.replace(analyzingPattern, errorLine);
+        editor.setValue(updatedContent);
+    }
+
+    editor.setCursor(editor.lastLine(), editor.getLine(editor.lastLine()).length);
+
 }

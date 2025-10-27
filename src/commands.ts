@@ -1,12 +1,13 @@
 import { App, Editor, MarkdownView, normalizePath, Notice, Plugin, Setting, TFile } from "obsidian";
 import { create_evening_text, GOAL_TEMPLATE, GOALS_INSTRUCTION_TEMPLATE, HOW_TO_TEMPLATE, MORNING_TEMPLATE } from "./templates";
 import { DEFAULT_JOURNAL_GET_STARTED_PATH, DEFAULT_JOURNAL_GOALS_PATH, DEFAULT_JOURNAL_PATH } from "./constants";
-import { extractJsonFromMarkdown, getAndExtractGoals, goalsToString, loadIntentsFromJson, loadIntentsJsonAsMarkdown, parseActionsAndRelateToIntentsFromMarkdown, parseIntentsFromJson, revealFileInExplorer, saveActionsAsJson, saveGoalsAsJson, saveIntentsAsJson } from "./utils";
+import { extractJsonFromMarkdown, getAndExtractGoals, goalsToString, loadIntentsFromJson, loadIntentsJsonAsMarkdown, parseActionsAndRelateToIntentsFromMarkdown, parseIntentsFromJson, parseJsonFromMarkdown, revealFileInExplorer, saveActionsAsJson, saveGoalsAsJson, saveIntentsAsJson, updateAnalysisText } from "./utils";
 import { createDailySummaryPrompt, createExtractIntentsPrompt, createReflectOnIntentsPrompt } from "./prompts";
 import { createClient, query_llm } from "./llm";
 import type Compound from "./main";
 import { extractRegexPatternFromString } from "./regex";
 import { ANALYSIS_SECTION_REGEX } from "./regex_patterns";
+import { EveningReflectionOutputType, UpdateType } from "./types";
 
 export const INSERT_GOAL_COMMAND = {
     id: 'Insert new goal',
@@ -29,35 +30,7 @@ export const reflectOnEvening = (plugin: Compound) => {
 
             const content = editor.getValue();
 
-            // Check if there's already an reflect section
-            const analysisSectionMatch = extractRegexPatternFromString(content, ANALYSIS_SECTION_REGEX)
-            if (!analysisSectionMatch.ok) {
-                new Notice(analysisSectionMatch.error)
-                return;
-            }
-
-            let analysisStartPos;
-
-            // Find where the Analysis History section is
-            const matchIndex = content.indexOf(analysisSectionMatch.value); // nullish coalesing not great
-
-            // need a nice abstraction for replacing text.
-            analysisStartPos = {
-                line: editor.lastLine(),
-                ch: editor.getLine(editor.lastLine()).length
-            };
-
-            // Add re-analysis indicator
-            const timestamp = new Date().toLocaleString();
-            editor.replaceRange(`\n\n🔄 Re-analyzing at ${timestamp}...`, analysisStartPos);
-            // First analysis - create the section
-            const lastLine = editor.lastLine();
-            analysisStartPos = {
-                line: lastLine,
-                ch: editor.getLine(lastLine).length
-            };
-
-            editor.replaceRange(`\n\n## Analysis History\n\n🔍 Analyzing at ${timestamp}...`, analysisStartPos);
+            updateAnalysisText(editor, UpdateType.initialize);
 
             try {
                 const eveningRegex = /\n### Evening Reflection\n([\s\S]*?)(?=\n## Analysis History|\z)/;
@@ -78,67 +51,34 @@ export const reflectOnEvening = (plugin: Compound) => {
                 }
 
                 const structuredIntents = await loadIntentsFromJson(plugin.app.vault, normalizePath(`${_view.file?.parent?.path}/daily_intents.json`))
-                const structuredActions = parseActionsAndRelateToIntentsFromMarkdown(extractJsonFromMarkdown(llmResponse.value), structuredIntents);
+                const eveningReflectionText = parseJsonFromMarkdown<EveningReflectionOutputType>(llmResponse.value)
 
-                const currentContent = editor.getValue();
-                const analyzingPattern = analysisSectionMatch.ok
-                    ? /🔄 Re-analyzing at .*?\.\.\./g
-                    : /🔍 Analyzing at .*?\.\.\./g;
+                if (!eveningReflectionText.ok){
+                    new Notice(eveningReflectionText.error)
+                    return;
+                } 
 
-                const timestamp = new Date().toLocaleString();
-                const successLine = analysisSectionMatch.ok
-                    ? `🔄 Re-analyzed at ${timestamp} ✅`
-                    : `🔍 Analyzed at ${timestamp} ✅`;
 
-                const updatedContent = currentContent.replace(analyzingPattern, successLine);
-                editor.setValue(updatedContent);
+                const structuredActions = parseActionsAndRelateToIntentsFromMarkdown(eveningReflectionText.value.actions, structuredIntents);
+
+                updateAnalysisText(editor, UpdateType.success)
 
                 // need to update the internal file (hidden from obsidian) in the folder.
                 saveActionsAsJson(plugin.app.vault, structuredActions, normalizePath(`${_view.file?.parent?.path}/daily_actions.json`));
 
-
                 // now want to generate the daily summary
                 const structuredGoals = await getAndExtractGoals(plugin);
+                const secondResponse = await query_llm(client.value, createDailySummaryPrompt(JSON.stringify(structuredActions), JSON.stringify(structuredGoals)));
 
-
-                const second_stream = await client.value.messages.create({
-                    max_tokens: 1024,
-                    messages: [{ role: 'user', content: createDailySummaryPrompt(JSON.stringify(structuredActions), JSON.stringify(structuredGoals)) }],
-                    model: 'claude-sonnet-4-5-20250929',
-                    stream: true,
-                });
-
-                let secondFullResponse = '';
-
-                // Process the stream
-                for await (const chunk of second_stream) {
-                    if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
-                        secondFullResponse += chunk.delta.text;
-                    }
+                if (!secondResponse.ok) {
+                    new Notice(secondResponse.error);
+                    return;
                 }
-
-                await plugin.app.vault.create(normalizePath(`${_view.file?.parent?.path}/llm summary.md`), secondFullResponse);
-
-
-                // Move cursor to end
-                editor.setCursor(editor.lastLine(), editor.getLine(editor.lastLine()).length);
-
+                
+                await plugin.app.vault.create(normalizePath(`${_view.file?.parent?.path}/llm summary.md`), secondResponse.value);
             } catch (error) {
-                const currentContent = editor.getValue();
-                const analyzingPattern = analysisSectionMatch.ok
-                    ? /🔄 Re-analyzing at .*?\.\.\./g
-                    : /🔍 Analyzing at .*?\.\.\./g;
-
-                const timestamp = new Date().toLocaleString();
-                const errorLine = analysisSectionMatch.ok
-                    ? `🔄 Re-analysis failed at ${timestamp} ❌: ${error.message}`
-                    : `🔍 Analysis failed at ${timestamp} ❌: ${error.message}`;
-
-                const updatedContent = currentContent.replace(analyzingPattern, errorLine);
-                editor.setValue(updatedContent);
-
-                // Move cursor to end
-                editor.setCursor(editor.lastLine(), editor.getLine(editor.lastLine()).length);
+                console.log(error)
+                updateAnalysisText(editor, UpdateType.failure)
             }
         }
     }
@@ -180,75 +120,23 @@ export const finishMorningEntryCommand = (plugin: Compound) => {
                 return;
             }
 
-            // Check if there's already an analysis section
-            const content = editor.getValue();
-            const analysisRegex = /\n## Analysis History\n([\s\S]*?)(?=\n##|\n---|\z)/;
-            const hasAnalysis = analysisRegex.test(content);
-
-            let analysisStartPos;
-
-            if (hasAnalysis) {
-                // Find where the Analysis History section is
-                const match = content.match(analysisRegex);
-                const matchIndex = content.indexOf(match![0]); // nullish coalesing not great
-
-                analysisStartPos = {
-                    line: editor.lastLine(),
-                    ch: editor.getLine(editor.lastLine()).length
-                };
-
-                // Add re-analysis indicator
-                const timestamp = new Date().toLocaleString();
-                editor.replaceRange(`\n\n🔄 Re-analyzing at ${timestamp}...`, analysisStartPos);
-            } else {
-                // First analysis - create the section
-                const lastLine = editor.lastLine();
-                analysisStartPos = {
-                    line: lastLine,
-                    ch: editor.getLine(lastLine).length
-                };
-
-                const timestamp = new Date().toLocaleString();
-                editor.replaceRange(`\n\n## Analysis History\n\n🔍 Analyzing at ${timestamp}...`, analysisStartPos);
-            }
+            updateAnalysisText(editor, UpdateType.initialize)
 
             try {
                 const entryText = _view.data.slice(93);
                 const goalsObject = await getAndExtractGoals(plugin);
-                const stream = await client.value.messages.create({
-                    max_tokens: 1024,
-                    messages: [{ role: 'user', content: createExtractIntentsPrompt(entryText, goalsToString(goalsObject)) }],
-                    model: 'claude-sonnet-4-5-20250929',
-                    stream: true,
-                });
+                const llmResponse = await query_llm(client.value, createExtractIntentsPrompt(entryText, goalsToString(goalsObject)))
 
-                let fullResponse = '';
-
-                // Process the stream
-                for await (const chunk of stream) {
-                    if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
-                        fullResponse += chunk.delta.text;
-                    }
+                if (!llmResponse.ok) {
+                    new Notice(llmResponse.error)
+                    return;
                 }
 
-                const actionJsonString = extractJsonFromMarkdown(fullResponse);
+                const actionJsonString = extractJsonFromMarkdown(llmResponse.value);
                 const structuredActions = parseIntentsFromJson(actionJsonString);
 
-
-                // Replace the "analyzing..." line with success
-                const currentContent = editor.getValue();
-                const analyzingPattern = hasAnalysis
-                    ? /🔄 Re-analyzing at .*?\.\.\./g
-                    : /🔍 Analyzing at .*?\.\.\./g;
-
-                const timestamp = new Date().toLocaleString();
-                const successLine = hasAnalysis
-                    ? `🔄 Re-analyzed at ${timestamp} ✅`
-                    : `🔍 Analyzed at ${timestamp} ✅`;
-
-                const updatedContent = currentContent.replace(analyzingPattern, successLine);
-                editor.setValue(updatedContent);
-
+                updateAnalysisText(editor, UpdateType.success)
+                
                 // need to update the internal file (hidden from obsidian) in the folder.
                 saveIntentsAsJson(plugin.app.vault, structuredActions, normalizePath(`${_view.file?.parent?.path}/daily_intents.json`));
 
@@ -256,21 +144,7 @@ export const finishMorningEntryCommand = (plugin: Compound) => {
                 editor.setCursor(editor.lastLine(), editor.getLine(editor.lastLine()).length);
 
             } catch (error) {
-                const currentContent = editor.getValue();
-                const analyzingPattern = hasAnalysis
-                    ? /🔄 Re-analyzing at .*?\.\.\./g
-                    : /🔍 Analyzing at .*?\.\.\./g;
-
-                const timestamp = new Date().toLocaleString();
-                const errorLine = hasAnalysis
-                    ? `🔄 Re-analysis failed at ${timestamp} ❌: ${error.message}`
-                    : `🔍 Analysis failed at ${timestamp} ❌: ${error.message}`;
-
-                const updatedContent = currentContent.replace(analyzingPattern, errorLine);
-                editor.setValue(updatedContent);
-
-                // Move cursor to end
-                editor.setCursor(editor.lastLine(), editor.getLine(editor.lastLine()).length);
+                updateAnalysisText(editor, UpdateType.failure)
             }
 
         }
